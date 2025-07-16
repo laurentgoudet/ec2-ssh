@@ -3,13 +3,8 @@
     "allow": [
       "Bash(go:*)",
       "Bash(ls:*)",
-      "Bash(./ec2-fzf:*)",
-      "Bash(AWS_PROFILE=flnltd ./ec2-fzf:*)",
-      "Bash(AWS_PROFILE=flnltd timeout 5 ./ec2-fzf --region us-east-1 --filters instance-state-name=running 2 >& 1)",
-      "Bash(./ec2-ssh:*)",
       "Bash(mv:*)",
-      "Bash(AWS_PROFILE=prod ./ec2-ssh --help)",
-      "Bash(AWS_PROFILE=prod ./ec2-ssh:*)"
+      "Bash(./ec2-ssh --help)"
     ],
     "deny": []
   }
