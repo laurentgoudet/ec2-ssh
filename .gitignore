@@ -4,7 +4,7 @@
 *.dll
 *.so
 *.dylib
-ec2-fzf
+ec2-ssh
 
 # Test binary, built with `go test -c`
 *.test

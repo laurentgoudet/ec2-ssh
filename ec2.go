@@ -1,22 +1,24 @@
-package ec2fzf
+package ec2ssh
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"strings"
 	"text/template"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 )
 
-func (e *Ec2fzf) ListInstances(ec2Client *ec2.EC2) ([]*ec2.Instance, error) {
-	instances := make([]*ec2.Instance, 0)
-	filters := make([]*ec2.Filter, 0, 0)
+func (e *Ec2ssh) ListInstances(ec2Client *ec2.Client) ([]types.Instance, error) {
+	instances := make([]types.Instance, 0)
+	filters := make([]types.Filter, 0, 0)
 
-	filters = append(filters, &ec2.Filter{
+	filters = append(filters, types.Filter{
 		Name:   aws.String("instance-state-name"),
-		Values: []*string{aws.String("pending"), aws.String("running"), aws.String("shutting-down")},
+		Values: []string{"pending", "running", "shutting-down"},
 	})
 
 	for _, filter := range e.options.Filters {
@@ -25,9 +27,9 @@ func (e *Ec2fzf) ListInstances(ec2Client *ec2.EC2) ([]*ec2.Instance, error) {
 			return nil, fmt.Errorf("Filters can only contain one '='. Filter \"%s\" has %d", filter, len(split))
 		}
 
-		filters = append(filters, &ec2.Filter{
+		filters = append(filters, types.Filter{
 			Name:   aws.String(split[0]),
-			Values: []*string{aws.String(split[1])},
+			Values: []string{split[1]},
 		})
 	}
 	params := &ec2.DescribeInstancesInput{}
@@ -36,29 +38,46 @@ func (e *Ec2fzf) ListInstances(ec2Client *ec2.EC2) ([]*ec2.Instance, error) {
 		params.Filters = filters
 	}
 
-	err := ec2Client.DescribeInstancesPages(
-		params,
-		func(p *ec2.DescribeInstancesOutput, lastPage bool) bool {
-			for _, r := range p.Reservations {
-				for _, i := range r.Instances {
-					instances = append(instances, i)
-				}
+	paginator := ec2.NewDescribeInstancesPaginator(ec2Client, params)
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(context.TODO())
+		if err != nil {
+			return nil, err
+		}
+
+		for _, r := range page.Reservations {
+			for _, i := range r.Instances {
+				instances = append(instances, i)
 			}
-			return !lastPage
-		},
-	)
-
-	return instances, err
-}
-
-func (e *Ec2fzf) GetConnectionDetails(instance *ec2.Instance) string {
-	if e.options.UsePrivateIp {
-		return *instance.PrivateIpAddress
+		}
 	}
-	return *instance.PublicDnsName
+
+	return instances, nil
 }
 
-func TemplateForInstance(i *ec2.Instance, t *template.Template) (output string, err error) {
+func (e *Ec2ssh) GetConnectionDetails(instance *types.Instance) string {
+	if e.options.UsePrivateIp {
+		if instance.PrivateIpAddress != nil && *instance.PrivateIpAddress != "" {
+			return *instance.PrivateIpAddress
+		}
+		return ""
+	}
+	
+	// Try public DNS first
+	if instance.PublicDnsName != nil && *instance.PublicDnsName != "" {
+		return *instance.PublicDnsName
+	}
+	
+	// Fall back to public IP
+	if instance.PublicIpAddress != nil && *instance.PublicIpAddress != "" {
+		return *instance.PublicIpAddress
+	}
+	
+	// Don't fall back to private IP when explicitly not requested
+	return ""
+}
+
+func TemplateForInstance(i *types.Instance, t *template.Template) (output string, err error) {
 	tags := make(map[string]string)
 
 	for _, t := range i.Tags {
@@ -70,7 +89,7 @@ func TemplateForInstance(i *ec2.Instance, t *template.Template) (output string, 
 		buffer,
 		struct {
 			Tags map[string]string
-			*ec2.Instance
+			*types.Instance
 		}{
 			tags,
 			i,
