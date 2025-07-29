@@ -165,7 +165,12 @@ func (e *Ec2ssh) Run() {
 	if e.options.PrintOnly {
 		for i, details := range connectionDetails {
 			if ssmConnections[i] {
-				fmt.Printf("aws ssm start-session --target %s\n", strings.TrimPrefix(details, "ssm:"))
+				instanceId := strings.TrimPrefix(details, "ssm:")
+				if e.options.Profile != "" {
+					fmt.Printf("aws ssm start-session --target %s --profile %s\n", instanceId, e.options.Profile)
+				} else {
+					fmt.Printf("aws ssm start-session --target %s\n", instanceId)
+				}
 			} else {
 				fmt.Printf("ssh %s\n", details)
 			}
@@ -194,7 +199,12 @@ func (e *Ec2ssh) Run() {
 		for i, details := range connectionDetails {
 			if ssmConnections[i] {
 				instanceId := strings.TrimPrefix(details, "ssm:")
-				command := fmt.Sprintf("aws ssm start-session --target %s --document-name AWS-StartInteractiveCommand --parameters 'command=[\"%s\"]'", instanceId, e.options.SSM.Command)
+				var command string
+				if e.options.Profile != "" {
+					command = fmt.Sprintf("aws ssm start-session --target %s --profile %s --document-name AWS-StartInteractiveCommand --parameters 'command=[\"%s\"]'", instanceId, e.options.Profile, e.options.SSM.Command)
+				} else {
+					command = fmt.Sprintf("aws ssm start-session --target %s --document-name AWS-StartInteractiveCommand --parameters 'command=[\"%s\"]'", instanceId, e.options.SSM.Command)
+				}
 				args = append(args, command)
 			} else {
 				args = append(args, fmt.Sprintf("ssh %s", details))
@@ -227,12 +237,15 @@ func (e *Ec2ssh) connectToInstance(details string, isSSM bool) {
 		instanceId := strings.TrimPrefix(details, "ssm:")
 		fmt.Printf("Connecting to %s via SSM...\n", instanceId)
 		
-		// Use AWS CLI to start SSM session with custom command
-		cmd := exec.Command("aws", "ssm", "start-session", 
-			"--target", instanceId,
-			"--document-name", "AWS-StartInteractiveCommand",
-			"--parameters", fmt.Sprintf("command=[\"%s\"]", e.options.SSM.Command))
+		// Build AWS CLI command with profile if specified
+		args := []string{"ssm", "start-session", "--target", instanceId}
+		if e.options.Profile != "" {
+			args = append(args, "--profile", e.options.Profile)
+		}
+		args = append(args, "--document-name", "AWS-StartInteractiveCommand")
+		args = append(args, "--parameters", fmt.Sprintf("command=[\"%s\"]", e.options.SSM.Command))
 		
+		cmd := exec.Command("aws", args...)
 		cmd.Stdin = os.Stdin
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr

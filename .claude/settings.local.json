@@ -4,7 +4,12 @@
       "Bash(go:*)",
       "Bash(ls:*)",
       "Bash(mv:*)",
-      "Bash(./ec2-ssh --help)"
+      "Bash(./ec2-ssh --help)",
+      "Bash(git commit:*)",
+      "Bash(git tag:*)",
+      "Bash(./build.sh)",
+      "Bash(./ec2-ssh --version)",
+      "Bash(git add:*)"
     ],
     "deny": []
   }
