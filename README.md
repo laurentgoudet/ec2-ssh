@@ -4,8 +4,11 @@ ec2-ssh is a command-line tool that provides an interactive fuzzy finder interfa
 
 ![GIF](https://raw.githubusercontent.com/laurentgoudet/ec2-ssh/master/img/ec2-ssh.gif)
 
-## ✨ What's New in v2.0
+## ✨ Features
 
+- **🔧 AWS SSM Support**: Connect to instances via AWS Systems Manager Session Manager
+- **🏷️ Tag-Based SSM Selection**: Automatically use SSM for instances with specific tags
+- **⚙️ Configurable SSM Commands**: Custom startup commands for SSM sessions
 - **🔐 AWS SSO/Identity Center Support**: Full support for modern AWS authentication
 - **⚡ AWS SDK v2**: Updated to the latest AWS SDK for better performance and reliability
 - **🎯 Positional Profile Support**: Simply use `ec2-ssh prod` instead of flags
@@ -135,6 +138,62 @@ ec2-ssh --filters instance-type=t3.micro
 
 Valid filter values are those used in the [AWS SDK for Go](http://docs.aws.amazon.com/sdk-for-go/api/service/ec2/#DescribeInstancesInput).
 
+### 🔧 AWS Systems Manager (SSM) Support
+
+ec2-ssh supports AWS Systems Manager Session Manager for secure connections to instances without requiring SSH keys or open ports.
+
+#### 🚀 Quick Setup
+
+1. **Configure SSM in your config file** (`~/.config/ec2-ssh/config.toml`):
+```toml
+[ssm]
+tag_key = "Environment"     # Any tag key you want to use
+tag_value = "production"    # Specific value, or leave empty for any value
+command = "bash -l"         # Command to run on connection
+```
+
+2. **Tag your EC2 instances** with the specified tag key/value
+
+3. **Ensure AWS CLI is configured** with SSM permissions
+
+#### 📋 Requirements
+
+- **AWS CLI**: Must be installed and configured with appropriate permissions
+- **SSM Agent**: Must be installed on target EC2 instances (pre-installed on Amazon Linux, Ubuntu, Windows)
+- **IAM Permissions**: Your AWS credentials need:
+  - `ssm:StartSession`
+  - `ssm:DescribeInstanceInformation`
+  - `ec2:DescribeInstances`
+
+#### 🎯 How It Works
+
+- **Automatic Detection**: Instances matching your SSM tag configuration will use SSM instead of SSH
+- **Mixed Connections**: You can have both SSH and SSM connections in the same selection
+- **Custom Commands**: Configure startup commands for SSM sessions (e.g., show MOTD, set environment)
+- **Multi-Instance Support**: Works with xpanes for connecting to multiple SSM instances
+
+#### 💡 Example Configurations
+
+```toml
+# Connect to all instances tagged with "SSMEnabled"
+[ssm]
+tag_key = "SSMEnabled"
+tag_value = ""  # Any value
+command = "bash -l"
+
+# Connect to production instances with custom greeting
+[ssm]
+tag_key = "Environment"
+tag_value = "production"
+command = "cat /etc/motd; bash -l"
+
+# Connect to instances with specific application tag
+[ssm]
+tag_key = "Application"
+tag_value = "web-server"
+command = "cd /var/log && bash -l"
+```
+
 ## ⚙️ Configuration
 
 You can set default configuration options in `~/.config/ec2-ssh/config.toml`:
@@ -148,6 +207,15 @@ Template = "{{index .Tags \"Name\"}}"
 
 # Use private IP by default (default: true)
 UsePrivateIp = true
+
+# SSM Configuration
+[ssm]
+# Tag key to identify instances that should use SSM connection
+tag_key = "flooserVersion"
+# Tag value (empty means any value for the specified key)
+tag_value = ""
+# Command to run when connecting via SSM (default: "bash -l")
+command = "cat /etc/motd; bash -l"
 ```
 
 ### 🎨 Template Customization

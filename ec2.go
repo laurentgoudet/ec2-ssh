@@ -56,6 +56,11 @@ func (e *Ec2ssh) ListInstances(ec2Client *ec2.Client) ([]types.Instance, error) 
 }
 
 func (e *Ec2ssh) GetConnectionDetails(instance *types.Instance) string {
+	// Check if this instance should use SSM
+	if e.shouldUseSSM(instance) {
+		return "ssm:" + *instance.InstanceId
+	}
+	
 	if e.options.UsePrivateIp {
 		if instance.PrivateIpAddress != nil && *instance.PrivateIpAddress != "" {
 			return *instance.PrivateIpAddress
@@ -75,6 +80,26 @@ func (e *Ec2ssh) GetConnectionDetails(instance *types.Instance) string {
 	
 	// Don't fall back to private IP when explicitly not requested
 	return ""
+}
+
+func (e *Ec2ssh) shouldUseSSM(instance *types.Instance) bool {
+	if e.options.SSM.TagKey == "" {
+		return false
+	}
+	
+	for _, tag := range instance.Tags {
+		if tag.Key != nil && *tag.Key == e.options.SSM.TagKey {
+			// If no specific value is required, any value matches
+			if e.options.SSM.TagValue == "" {
+				return true
+			}
+			// Otherwise, check for exact match
+			if tag.Value != nil && *tag.Value == e.options.SSM.TagValue {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func TemplateForInstance(i *types.Instance, t *template.Template) (output string, err error) {

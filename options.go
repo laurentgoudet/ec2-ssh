@@ -11,6 +11,12 @@ import (
 	"github.com/spf13/viper"
 )
 
+type SSMConfig struct {
+	TagKey   string `mapstructure:"tag_key"`
+	TagValue string `mapstructure:"tag_value"` // empty means any value
+	Command  string `mapstructure:"command"`
+}
+
 type Options struct {
 	Regions         []string
 	UsePrivateIp    bool
@@ -19,6 +25,7 @@ type Options struct {
 	Filters         []string
 	Profile         string
 	PrintOnly       bool
+	SSM             SSMConfig `mapstructure:"ssm"`
 }
 
 func ParseOptions() Options {
@@ -33,6 +40,12 @@ func ParseOptions() Options {
 		for _, profile := range profiles {
 			fmt.Println(profile)
 		}
+		os.Exit(0)
+	}
+	
+	// Handle version flag
+	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-v") {
+		fmt.Println(VERSION)
 		os.Exit(0)
 	}
 
@@ -80,6 +93,9 @@ func ParseOptions() Options {
 			{{- end -}}
 		`,
 	)
+	
+	// SSM defaults
+	viper.SetDefault("ssm.command", "bash -l")
 
 	// Use positional profile if provided
 	profile := positionalProfile
@@ -100,6 +116,11 @@ func ParseOptions() Options {
 		Filters:         viper.GetStringSlice("Filters"),
 		Profile:         profile,
 		PrintOnly:       viper.GetBool("print-only"),
+		SSM: SSMConfig{
+			TagKey:   viper.GetString("ssm.tag_key"),
+			TagValue: viper.GetString("ssm.tag_value"),
+			Command:  viper.GetString("ssm.command"),
+		},
 	}
 }
 
