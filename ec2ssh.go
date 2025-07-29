@@ -1,12 +1,14 @@
 package ec2ssh
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"text/template"
@@ -96,6 +98,7 @@ func New() (*Ec2ssh, error) {
 func (e *Ec2ssh) Run() {
 	instances := make([]types.Instance, 0)
 	instancesLock := &sync.Mutex{}
+	var lastError error
 
 	wg := &sync.WaitGroup{}
 	for _, client := range e.ec2Clients {
@@ -104,7 +107,10 @@ func (e *Ec2ssh) Run() {
 			defer wg.Done()
 			retrivedInstances, err := e.ListInstances(c)
 			if err != nil {
-				panic(err)
+				instancesLock.Lock()
+				lastError = err
+				instancesLock.Unlock()
+				return
 			}
 
 			instancesLock.Lock()
@@ -114,6 +120,16 @@ func (e *Ec2ssh) Run() {
 	}
 
 	wg.Wait()
+
+	// Handle SSO authentication errors
+	if lastError != nil {
+		if e.handleSSOError(lastError) {
+			// Retry after SSO login
+			e.Run()
+			return
+		}
+		panic(lastError)
+	}
 
 	indexes, err := finder.FindMulti(
 		instances,
@@ -270,6 +286,88 @@ func (e *Ec2ssh) connectToInstance(details string, isSSM bool) {
 			os.Exit(1)
 		}
 	}
+}
+
+// handleSSOError detects SSO authentication errors and automatically runs aws sso login
+func (e *Ec2ssh) handleSSOError(err error) bool {
+	errStr := err.Error()
+	
+	// Check if this is an SSO authentication error
+	if strings.Contains(errStr, "failed to refresh cached credentials") ||
+		strings.Contains(errStr, "cached SSO token") ||
+		strings.Contains(errStr, "sso/cache") {
+		
+		fmt.Printf("SSO session expired. Running 'aws sso login' for profile '%s'...\n", e.options.Profile)
+		
+		// Get SSO session name from the profile
+		ssoSession := e.getSSOSessionFromProfile(e.options.Profile)
+		if ssoSession == "" {
+			fmt.Printf("Could not determine SSO session for profile '%s'. Please run 'aws sso login --profile %s' manually.\n", e.options.Profile, e.options.Profile)
+			return false
+		}
+		
+		// Run aws sso login with the SSO session
+		cmd := exec.Command("aws", "sso", "login", "--sso-session", ssoSession)
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		
+		err := cmd.Run()
+		if err != nil {
+			fmt.Printf("SSO login failed: %v\n", err)
+			return false
+		}
+		
+		fmt.Println("SSO login successful. Retrying...")
+		return true
+	}
+	
+	return false
+}
+
+// getSSOSessionFromProfile extracts SSO session name from AWS config for a specific profile
+func (e *Ec2ssh) getSSOSessionFromProfile(profile string) string {
+	if profile == "" {
+		return ""
+	}
+	
+	configPath := filepath.Join(os.Getenv("HOME"), ".aws", "config")
+	file, err := os.Open(configPath)
+	if err != nil {
+		return ""
+	}
+	defer file.Close()
+	
+	var currentProfile string
+	var inTargetProfile bool
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		
+		// Check for profile section
+		if strings.HasPrefix(line, "[profile ") && strings.HasSuffix(line, "]") {
+			currentProfile = strings.TrimPrefix(line, "[profile ")
+			currentProfile = strings.TrimSuffix(currentProfile, "]")
+			inTargetProfile = (currentProfile == profile)
+			continue
+		}
+		
+		// Reset if we hit a new section that's not a profile
+		if strings.HasPrefix(line, "[") && !strings.HasPrefix(line, "[profile ") {
+			inTargetProfile = false
+			continue
+		}
+		
+		// Look for sso_session in the target profile
+		if inTargetProfile && strings.HasPrefix(line, "sso_session") {
+			parts := strings.SplitN(line, "=", 2)
+			if len(parts) == 2 {
+				return strings.TrimSpace(parts[1])
+			}
+		}
+	}
+	
+	return ""
 }
 
 // getStringPtr safely gets string value from pointer
